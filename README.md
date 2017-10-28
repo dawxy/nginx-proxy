@@ -95,6 +95,25 @@ $ docker network connect my-other-network my-nginx-proxy
 
 In this example, the `my-nginx-proxy` container will be connected to `my-network` and `my-other-network` and will be able to proxy to other containers attached to those networks.
 
+### Internet vs. Local Network Access
+
+If you allow traffic from the public internet to access your `nginx-proxy` container, you may want to restrict some containers to the internal network only, so they cannot be accessed from the public internet.  On containers that should be restricted to the internal network, you should set the environment variable `NETWORK_ACCESS=internal`.  By default, the *internal* network is defined as `127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16`.  To change the list of networks considered internal, mount a file on the `nginx-proxy` at `/etc/nginx/network_internal.conf` with these contents, edited to suit your needs:
+
+```
+# These networks are considered "internal"
+allow 127.0.0.0/8;
+allow 10.0.0.0/8;
+allow 192.168.0.0/16;
+allow 172.16.0.0/12;
+
+# Traffic from all other networks will be rejected
+deny all;
+```
+
+When internal-only access is enabled, external clients with be denied with an `HTTP 403 Forbidden`
+
+> If there is a load-balancer / reverse proxy in front of `nginx-proxy` that hides the client IP (example: AWS Application/Elastic Load Balancer), you will need to use the nginx `realip` module (already installed) to extract the client's IP from the HTTP request headers.  Please see the [nginx realip module configuration](http://nginx.org/en/docs/http/ngx_http_realip_module.html) for more details.  This configuration can be added to a new config file and mounted in `/etc/nginx/conf.d/`.
+
 ### SSL Backends
 
 If you would like the reverse proxy to connect to your backend using HTTPS instead of HTTP, set `VIRTUAL_PROTO=https` on the backend container.
@@ -106,6 +125,17 @@ If you would like the reverse proxy to connect to your backend using HTTPS inste
 If you would like to connect to uWSGI backend, set `VIRTUAL_PROTO=uwsgi` on the
 backend container. Your backend container should then listen on a port rather
 than a socket and expose that port.
+
+### FastCGI Backends
+ 
+If you would like to connect to FastCGI backend, set `VIRTUAL_PROTO=fastcgi` on the
+backend container. Your backend container should then listen on a port rather
+than a socket and expose that port.
+ 
+### FastCGI Filr Root Directory
+
+If you use fastcgi,you can set `VIRTUAL_ROOT=xxx`  for your root directory
+
 
 ### Default Host
 
@@ -180,13 +210,19 @@ should have a `foo.bar.com.dhparam.pem` file in the `/etc/nginx/certs` directory
 
 > NOTE: If you don't mount a `dhparam.pem` file at `/etc/nginx/dhparam/dhparam.pem`, one will be generated
 at startup.  Since it can take minutes to generate a new `dhparam.pem`, it is done at low priority in the
-background.  Once generation is complete, the `dhparams.pem` is saved on a persistent volume and nginx
+background.  Once generation is complete, the `dhparam.pem` is saved on a persistent volume and nginx
 is reloaded.  This generation process only occurs the first time you start `nginx-proxy`.
 
 > COMPATIBILITY WARNING: The default generated `dhparam.pem` key is 2048 bits for A+ security.  Some 
 > older clients (like Java 6 and 7) do not support DH keys with over 1024 bits.  In order to support these
 > clients, you must either provide your own `dhparam.pem`, or tell `nginx-proxy` to generate a 1024-bit
 > key on startup by passing `-e DHPARAM_BITS=1024`.
+
+In the separate container setup, no pregenerated key will be available and neither the
+[jwilder/docker-gen](https://index.docker.io/u/jwilder/docker-gen/) image nor the offical
+[nginx](https://registry.hub.docker.com/_/nginx/) image will generate one. If you still want A+ security
+in a separate container setup, you'll have to generate a 2048 bits DH key file manually and mount it on the
+nginx container, at `/etc/nginx/dhparam/dhparam.pem`.
 
 #### Wildcard Certificates
 
